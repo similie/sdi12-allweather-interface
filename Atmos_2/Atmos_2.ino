@@ -132,6 +132,7 @@ void setup(){
 }
 
 // String ourReading;
+const char * POSITION_FILE = "position";
 const char * FILE_NAME = "reads.txt";
 const char * TEMP_FILE  = "temp.txt";
 const char * LOG_FILE  = "log.txt";
@@ -144,9 +145,35 @@ String getPopIndex(size_t index) {
   return String("pop ") + String(index) + String(" ");
 }
 
+bool setPosition(unsigned long position) {
+    if (SD.exists(POSITION_FILE) && !kilFile(POSITION_FILE)) {
+       return false;
+    }
+    File myFile = SD.open(POSITION_FILE, FILE_WRITE);
+    myFile.println(String(position));
+    myFile.flush();
+    myFile.close();
+    return true;
+}
+
+unsigned long getPosition() {
+  if (!SD.exists(POSITION_FILE)) {
+    return 0;
+  }
+  File myFile = SD.open(POSITION_FILE);
+  char readChar;
+  String value;
+  while(myFile.available()) {
+    readChar = myFile.read();
+    value += String(readChar);
+  }
+  myFile.close();
+  return strtoul(value.c_str(), NULL, 10);
+} 
+
 unsigned long getLineCount(int count) {
   
-  unsigned long position = 0;
+  unsigned long position = getPosition();
   bool exists = SD.exists(FILE_NAME);
   log("GETTING LINES +++++ ");
   logln(exists);
@@ -159,12 +186,18 @@ unsigned long getLineCount(int count) {
   File myFile = SD.open(FILE_NAME);
   char readChar;
   size_t i = 0;
+
+  const unsigned long SIZE = myFile.size();
+  
   log("I HAVE A FILE OF SIZE ");
   logln(myFile.size());
-  log(getPopIndex(i));
-  while (myFile.available() && (i < count || DUMPALL)) {
+  // log(getPopIndex(i));
+
+  myFile.seek(position);
+  
+  while (myFile.available() && (i <= count || DUMPALL)) {
    char readChar = myFile.read();
-   Serial.write(readChar);
+   log(readChar);
    Serial1.print(readChar);
    position = myFile.position();
    if (readChar == '\n') {
@@ -179,102 +212,15 @@ unsigned long getLineCount(int count) {
   myFile.flush();
   myFile.close();
 
-  if (DUMPALL) {
+  if (position < SIZE) {
+     setPosition(position);
+  } else {
+    // now we beach our position file
     kilFile(FILE_NAME);
+    kilFile(POSITION_FILE);
   }
-  
   return position;
 }
-
-bool restoreFile() {
-  if (!SD.exists(TEMP_FILE)) {
-    log("TEMP FILE IS NOT AVAILABLE");
-    return false;
-  }
-  logln("STATRTING RESTORATION");
-  File tempFile = SD.open(TEMP_FILE);
-  const unsigned long SIZE = tempFile.size();
-  unsigned long position = 0;
-  tempFile.close();
-  log("I AM IN POSITION ");
-  logln(SIZE);
-  unsigned long hold = position;
-  while (position < SIZE) {
-    hold = position;
-    File tempFile = SD.open(TEMP_FILE);
-    tempFile.seek(position);
-    int local = 0;
-    while(tempFile.available() && local < RESTORATION_BUFFER_SIZE) {
-       char readChar = tempFile.read();
-       
-       RESTORATION_BUFFER[local] = readChar;
-       position = tempFile.position();
-       local++;
-    }
-    tempFile.close();
-
-    File myFile = SD.open(FILE_NAME, FILE_WRITE);
-    if (!myFile) {
-       Serial.println("MY restoration FILE IS BEACHED");
-       return false;
-    }
-    for (int i = 0; i < RESTORATION_BUFFER_SIZE && i < local; i++) {
-       char readChar = RESTORATION_BUFFER[i];
-       myFile.print(readChar);
-    }
-    myFile.flush();
-    myFile.close();
-  }
-
-  return kilFile(TEMP_FILE);
-}
-
-bool setTemp(unsigned long position) {
-  
-  File myFile = SD.open(FILE_NAME);
-  const unsigned long SIZE = myFile.size();
-  myFile.close();
-  log("SETTTING TEMP FILE +++++ ");
-  log(" ");
-  log(position);
-  log(" ");
-  logln(SIZE); 
-  if (position >= SIZE) {
-    return !kilFile(FILE_NAME);
-  }
-
-  unsigned long hold = 0;
-  
-  while (position < SIZE && hold < position) {
-    hold = position;
-    int local = 0;
-    
-    File myFile = SD.open(FILE_NAME);
-    myFile.seek(position);
-        
-    while(myFile.available() && local < RESTORATION_BUFFER_SIZE) {
-       char readChar = myFile.read();
-       RESTORATION_BUFFER[local] = readChar;
-       position = myFile.position();
-       local++;
-    }
-
-    myFile.close();
-    File tempFile = SD.open(TEMP_FILE, FILE_WRITE);
-    if (!tempFile) {
-       logln("Temp file failed to open in setTemp");
-       return false;
-    }
-    for (int i = 0; i < local; i++) {
-       char readChar = RESTORATION_BUFFER[i];
-       tempFile.print(readChar);
-    }
-    tempFile.flush();
-    tempFile.close();
-  }
-  return kilFile(FILE_NAME);
-}
-
 
 void pop(SDIReadEvent * event) {
 
@@ -288,17 +234,6 @@ void pop(SDIReadEvent * event) {
  log("GETTING MY POP ON %%%%%%%%%%%%%%%%% ");
  logln(count);
  unsigned long pointerIndex = getLineCount(count);
-
- if (pointerIndex > 0 && !DUMPALL) {
-  //destroyLine(count);
-  bool killed = setTemp(pointerIndex); 
-  if (killed) {
-   bool restored = restoreFile();  
-   if (!restored) {
-    logln("Restoration Failed");
-   }
-  }
- }
  event->setFileKeeper(false);
 }
 
@@ -324,22 +259,22 @@ void push(SDIReadEvent * event) {
    event->setFileKeeper(false);
 }
 
-void logIt(SDIReadEvent * event) {
-   if (event->fileKeeping()) {
-     return;
-   }
-   String ourReading = event->getRead();
-   event->setFileKeeper(true);
-   File myFile = SD.open(LOG_FILE, FILE_WRITE);
-   if (myFile) {
-      myFile.println(ourReading);
-      myFile.flush();
-      myFile.close(); 
-   } else {
-    logln("Failed to open log file");
-   }
-   event->setFileKeeper(false);
-}
+//void logIt(SDIReadEvent * event) {
+//   if (event->fileKeeping()) {
+//     return;
+//   }
+//   String ourReading = event->getRead();
+//   event->setFileKeeper(true);
+//   File myFile = SD.open(LOG_FILE, FILE_WRITE);
+//   if (myFile) {
+//      myFile.println(ourReading);
+//      myFile.flush();
+//      myFile.close(); 
+//   } else {
+//    logln("Failed to open log file");
+//   }
+//   event->setFileKeeper(false);
+//}
 
 
 
@@ -366,7 +301,7 @@ void processSerialCommand(SDIReadEvent * event) {
    } else if (localRead.startsWith("push")) {   
      push(event);
    } else if (localRead.startsWith("log")) {
-     logIt(event);
+     // logIt(event);
    } else if (localRead) {
      setSDICommand(event);
    }
@@ -470,15 +405,6 @@ void logln(T param) {
      return;
   }
   String logString = String(param);
-//  SDIReadEvent * e = new SDIReadEvent();
-//  e->setRead(logString);
-//  event->setToWork();
-//  event->setFileKeeper(true);
-//  logIt(e);
-//  event->setFileKeeper(false);
-//  e->clear();
-//  delete e;
-//  event = NULL;
   Serial.println(logString);
 }
 template<class T>
@@ -488,11 +414,5 @@ void log(T param) {
      return;
   }
   String logString = String(param);
-//  SDIReadEvent * event = new SDIReadEvent();
-//  event->setRead(logString);
-//  logIt(event);
-//  event->clear();
-//  delete param;
-//  param = NULL;
   Serial.print(logString);
 }
