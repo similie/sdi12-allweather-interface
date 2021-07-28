@@ -4,18 +4,21 @@
 #define CONSOLE_BAUD 115200
 #define SERIAL_BAUD 9600  // The baud rate for the output serial port
 #define DATA_PIN 10
+
+#define SECONDARY_DATA_PIN 11
 // The pin of the SDI-12 data bus
 #define POWER_PIN -1       // The sensor power pin (or -1 if not switching power)
 #define SENSOR_ADDRESS 1
-#define AUTOMATIC false
+#define AUTOMATIC true
 #define DUMPALL false
-#define DEBUG_MODE false
+#define DEBUG_MODE true
 
 // include the SD library:
 #include <SPI.h>
 #include <SD.h>
 
-static String serialMsgStr = "0R4!";
+//static String serialMsgStr = "0R4!";
+static String serialMsgStr = "0R0!";
 
 const int READ_BUF_SIZE = 116;
 const long mili = 1000  ;
@@ -23,6 +26,7 @@ const long waitTime = 10;
 boolean send = false;
 unsigned long lastTime = 0;
 char RESTORATION_BUFFER[RESTORATION_BUFFER_SIZE];
+
 // set up variables using the SD utility library functions:
 //Sd2Card card;
 //SdVolume volume;
@@ -97,6 +101,8 @@ void SDIReadEvent::clear() {
   working = false;
 }
 
+SDIReadEvent * event = new SDIReadEvent();
+SDIReadEvent * sdiEvent = new SDIReadEvent();
 // change this to match your SD shield or module;m
 // Arduino Ethernet shield: pin 4
 // Adafruit SD shields and modules: pin 10
@@ -105,7 +111,12 @@ void SDIReadEvent::clear() {
 const int chipSelect = 4;
 // File myFile;0
 // Define the SDI-12 bus
+size_t pinCount = 2;
+int dataPins[] = {DATA_PIN, SECONDARY_DATA_PIN};
+
 SDI12 mySDI12(DATA_PIN);
+// SDI12 secondarySDI12(SECONDARY_DATA_PIN);
+
 void setup(){
   Serial.begin(CONSOLE_BAUD);
   Serial1.begin(SERIAL_BAUD);
@@ -117,12 +128,13 @@ void setup(){
     digitalWrite(POWER_PIN, HIGH);
     delay(200);
   }
+
+  delay(5000);
   // Initiate serial connection to SDI-12 bus
   mySDI12.begin();
   delay(500);
   mySDI12.forceListen();
-  // Print help text (may wish to comment out if used for communicating to software)
-
+  
   if (!SD.begin(chipSelect)) {
     logln("initialization failed!");
     return;
@@ -172,7 +184,6 @@ unsigned long getPosition() {
 } 
 
 unsigned long getLineCount(int count) {
-  
   unsigned long position = getPosition();
   bool exists = SD.exists(FILE_NAME);
   log("GETTING LINES +++++ ");
@@ -237,7 +248,6 @@ void pop(SDIReadEvent * event) {
  event->setFileKeeper(false);
 }
 
-
 void push(SDIReadEvent * event) {
    if (event->isWorking() || event->fileKeeping()) {
       return;
@@ -259,93 +269,147 @@ void push(SDIReadEvent * event) {
    event->setFileKeeper(false);
 }
 
-//void logIt(SDIReadEvent * event) {
-//   if (event->fileKeeping()) {
-//     return;
-//   }
-//   String ourReading = event->getRead();
-//   event->setFileKeeper(true);
-//   File myFile = SD.open(LOG_FILE, FILE_WRITE);
-//   if (myFile) {
-//      myFile.println(ourReading);
-//      myFile.flush();
-//      myFile.close(); 
-//   } else {
-//    logln("Failed to open log file");
-//   }
-//   event->setFileKeeper(false);
-//}
-
-
-
 int getPopSize(String ourReading) {
   String substring = ourReading.substring(4);
   return atoi(substring.c_str());
 }
 
+String getCMDValues(SDIReadEvent * event) {
+   String cmd = event->getRead();
+   return cmd;
+}
+
+//
+//void incrementIndex() {
+//  pinIndex++;
+//  if (pinIndex >= pinCount) {
+//    pinIndex = 0;
+//  }
+//}
+
+bool pinIndexRead(size_t i) {
+  size_t count = 200;
+  size_t iter = 0;
+  int process = 0;
+  String sendContext = "result_" + String(i) + " ";
+  while(!sdiEvent->isReady() && iter < count) {
+    process = processInputSerial(sdiEvent, &mySDI12, false, sendContext);
+    iter++;
+    delay(10);
+  } 
+  sdiEvent->clear();
+  return iter < count;
+}
+
+void sendErrorIndex(size_t index) {
+  String error = "ERROR_" + String(index);
+  Serial1.println(error);
+}
+
+
+void sendByIndex(SDIReadEvent * event, int index) {
+  mySDI12.setDataPin(dataPins[index]);
+  String cmd = getCMDValues(event);
+  log(index);log(" ");logln(cmd);
+  mySDI12.sendCommand(cmd);    
+  if (!pinIndexRead(index)) {
+    sendErrorIndex(index);
+  } 
+}
+
+// HERE
 void setSDICommand(SDIReadEvent * event) {
    if (event->isWorking()) {
       return;
    }
    event->setToWork();
-   String cmd = event->getRead();
-   log(cmd);
-   mySDI12.sendCommand(cmd);   
+   for (size_t i = 0; i < pinCount; i++) {
+    sendByIndex(event, i);
+   }
 }
+
+int getRequestIndex(String request) {
+  request.replace("request_", "");
+  return atoi(request.c_str());
+}
+
+String getCommand(String request) {
+  int index = request.indexOf(" ");
+  return request.substring(index + 1);
+}
+
+void processSensorRequest(SDIReadEvent * event) {
+  String localRead = event->getRead();
+  int index = getRequestIndex(localRead);
+  if (index > pinCount - 1) {
+    return sendErrorIndex(index);
+  }
+  String cmd = getCommand(localRead);
+  event->setRead(cmd);
+  sendByIndex(event, index);
+  event->clear();
+}
+
 
 void processSerialCommand(SDIReadEvent * event) {
    String localRead = event->getRead();
-   
    if (localRead.startsWith("pop")) {
      pop(event);
    } else if (localRead.startsWith("push")) {   
      push(event);
    } else if (localRead.startsWith("log")) {
      // logIt(event);
+   } else if (localRead.startsWith("request")) {
+     processSensorRequest(event);
    } else if (localRead) {
      setSDICommand(event);
    }
    event->clear(); 
 }
 
+void automaticSend(SDIReadEvent * event) {  
+   event->setRead(serialMsgStr);
+   lastTime = millis();  
+   setSDICommand(event); 
+   event->clear(); 
+   send = false;       
+}
 
+bool isReadyForAutoSend() {
+  return AUTOMATIC && (millis() - lastTime) > (waitTime * mili);
+}
 
-void processActivity(SDIReadEvent * event) {
-   send = (millis() - lastTime) > (waitTime * mili);
-   
-   if (!event->isReady() || event->isWorking()) {
-      return;
-   }
-
-   if (AUTOMATIC && send) {
-    lastTime = millis();
-    String read = event->getRead();
-    //mySDI12.sendCommand(read);
-    setSDICommand(event);
-    send = false;         
+void processActivity(SDIReadEvent * event) {     
+   if (isReadyForAutoSend()) {
+    automaticSend(event);
   } else if (!AUTOMATIC)  {
+    if (!event->isReady() || event->isWorking()) {
+      return;
+    }
     processSerialCommand(event);
   }  
 }
 
-SDIReadEvent * event = new SDIReadEvent();
-SDIReadEvent * sdiEvent = new SDIReadEvent();
-
 void loop() {
   readSerial(event);
   processActivity(event);
-  processInputSerial(sdiEvent);
+  processInputSerial(sdiEvent, &mySDI12, true);
 }
 
+int processInputSerial(SDIReadEvent * event, SDI12 * readBuffer, bool withClear) {
+  return processInputSerial(event, readBuffer, withClear, "");
+}
 
-void processInputSerial(SDIReadEvent * event) {
-  int avail = mySDI12.available();
-
-  if (avail < 0) { mySDI12.clearBuffer(); event->clear(); } // Buffer is full; clear
-  else if (avail > 0) {    
+int processInputSerial(SDIReadEvent * event, SDI12 * readBuffer, bool withClear, String preppend) {
+  int avail = readBuffer->available();
+  if (avail < 0) { 
+   // Buffer is full; clear
+   readBuffer->clearBuffer(); 
+   event->clear(); 
+  } else if (avail > 0) {    
     event->setToWork();
     for (int a=0; a<avail; a++) {
-      char inByte2 = mySDI12.read();
+      char inByte2 = readBuffer->read();
       if (inByte2 == '\n' || inByte2 == '\0') {
         event->setReady();
       }
@@ -360,20 +424,21 @@ void processInputSerial(SDIReadEvent * event) {
   }
 
   String sdiMsgStr = event->getRead();
-  
   if (event->isReady()) {
     if (sdiMsgStr != "") {
-     logln(sdiMsgStr);
-     Serial1.println(sdiMsgStr);
+     String send = preppend + sdiMsgStr;
+     logln(send);
+     Serial1.println(send);
     }
-    event->clear();
+    if (withClear) {
+      event->clear();  
+    }
   }
+  return avail;
 }
 
 bool readSerial(SDIReadEvent * event)
-
 {
-   
    if (event->isWorking()) {
     return 0;
    }    
@@ -381,10 +446,9 @@ bool readSerial(SDIReadEvent * event)
    for (int i = 0; i < avail && !event->isReady(); i++)
    {
     char inChar = Serial1.read();
-    //  /log(inChar);
+    // log(inChar);
     if (inChar == '\n' || inChar == '\0' )
     {
-       
        if (inChar == '\n') {
          event->build(inChar);
        }
@@ -398,6 +462,8 @@ bool readSerial(SDIReadEvent * event)
   }
   return 0;
 }
+
+
 
 template<class T>
 void logln(T param) {
