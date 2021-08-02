@@ -9,7 +9,7 @@
 // The pin of the SDI-12 data bus
 #define POWER_PIN -1       // The sensor power pin (or -1 if not switching power)
 #define SENSOR_ADDRESS 1
-#define AUTOMATIC true
+#define AUTOMATIC false
 #define DUMPALL false
 #define DEBUG_MODE true
 
@@ -101,6 +101,13 @@ void SDIReadEvent::clear() {
   working = false;
 }
 
+// String ourReading;
+const char * POSITION_FILE = "position";
+const char * FILE_NAME = "reads.txt";
+const char * TEMP_FILE  = "temp.txt";
+const char * LOG_FILE  = "log.txt";
+bool hasFile = true;
+
 SDIReadEvent * event = new SDIReadEvent();
 SDIReadEvent * sdiEvent = new SDIReadEvent();
 // change this to match your SD shield or module;m
@@ -137,26 +144,38 @@ void setup(){
   
   if (!SD.begin(chipSelect)) {
     logln("initialization failed!");
+    hasFile = false;
     return;
   }
   logln("initialization done.");
   delay(2000);
 }
 
-// String ourReading;
-const char * POSITION_FILE = "position";
-const char * FILE_NAME = "reads.txt";
-const char * TEMP_FILE  = "temp.txt";
-const char * LOG_FILE  = "log.txt";
-
+/**
+ * kilFile - removes a file from the sd card by filename
+ * 
+ * @param const * char filename - the file to remove
+ * @return bool - true if the file is removed
+ */
 bool kilFile (const char * filename) {
   return SD.remove(filename);
 }
-
+/**
+ * getPopIndex - appends the popped data with with the pop identity
+ * and it's corresponding index
+ * 
+ * @param size_t index - the index of the line being returned
+ * @return String - the concatenated string that contains the index
+ */
 String getPopIndex(size_t index) {
   return String("pop ") + String(index) + String(" ");
 }
-
+/**
+ * setPosition - retains the file position index for later retrieval
+ * 
+ * @param size_t index - the index of the line being returned
+ * @return bool - true when everything works out
+ */
 bool setPosition(unsigned long position) {
     if (SD.exists(POSITION_FILE) && !kilFile(POSITION_FILE)) {
        return false;
@@ -167,7 +186,11 @@ bool setPosition(unsigned long position) {
     myFile.close();
     return true;
 }
-
+/**
+ * getPosition - gets the value of the file position stored in file 
+ * 
+ * @return unsigned long - the value of the last saved position
+ */
 unsigned long getPosition() {
   if (!SD.exists(POSITION_FILE)) {
     return 0;
@@ -182,12 +205,16 @@ unsigned long getPosition() {
   myFile.close();
   return strtoul(value.c_str(), NULL, 10);
 } 
-
+/**
+ * getLineCount - gets the number of lines in the storage file as input
+ * 
+ * @param int count - the number of lines being requested
+ * @return unsigned long - the value of the last traversed position
+ */
 unsigned long getLineCount(int count) {
   unsigned long position = getPosition();
   bool exists = SD.exists(FILE_NAME);
-  log("GETTING LINES +++++ ");
-  logln(exists);
+  log("GETTING LINES +++++ ");logln(exists);
   if (!exists) {
     File myFile = SD.open(FILE_NAME, FILE_WRITE);
     myFile.close();
@@ -202,8 +229,7 @@ unsigned long getLineCount(int count) {
   
   log("I HAVE A FILE OF SIZE ");
   logln(myFile.size());
-  // log(getPopIndex(i));
-
+  // Postion the file from the last know position
   myFile.seek(position);
   
   while (myFile.available() && (i <= count || DUMPALL)) {
@@ -232,8 +258,18 @@ unsigned long getLineCount(int count) {
   }
   return position;
 }
-
+/**
+ * pop - pops lines from the storage file requested over serial
+ * 
+ * @param SDIReadEvent * event - the event containing the data being filled
+ * @return void
+ */
 void pop(SDIReadEvent * event) {
+
+  if (!hasFile) {
+      Serial.print("File Failed to initialize");
+      return;
+  }
 
  if (event->fileKeeping()) {
     return;
@@ -242,13 +278,23 @@ void pop(SDIReadEvent * event) {
  event->setFileKeeper(true);
  String localRead = event->getRead();
  int count = getPopSize(localRead);
- log("GETTING MY POP ON %%%%%%%%%%%%%%%%% ");
- logln(count);
+ log("Popping  ");logln(count);
  unsigned long pointerIndex = getLineCount(count);
  event->setFileKeeper(false);
 }
-
+/**
+ * push - pushes data lines requested over serial
+ * 
+ * @param SDIReadEvent * event - the event containing the data being filled
+ * @return void
+ */
 void push(SDIReadEvent * event) {
+
+   if (!hasFile) {
+     Serial.print("File Failed to initialize");
+     return;
+   }
+  
    if (event->isWorking() || event->fileKeeping()) {
       return;
    }
@@ -268,46 +314,69 @@ void push(SDIReadEvent * event) {
    }
    event->setFileKeeper(false);
 }
-
+/**
+ * getPopSize - pulls the interger pop value from the request string
+ * 
+ * @param String ourReading - the string over the serial bus i.e. pop 5
+ * @return int - the interger value to pop
+ */
 int getPopSize(String ourReading) {
   String substring = ourReading.substring(4);
   return atoi(substring.c_str());
 }
-
+/**
+ * getCMDValues - pulls a given command string from an SDIReadEvent object
+ * 
+ * @param SDIReadEvent * event - contains the serial data
+ * @return String - the command
+ */
 String getCMDValues(SDIReadEvent * event) {
    String cmd = event->getRead();
    return cmd;
 }
-
-//
-//void incrementIndex() {
-//  pinIndex++;
-//  if (pinIndex >= pinCount) {
-//    pinIndex = 0;
-//  }
-//}
-
-bool pinIndexRead(size_t i) {
-  size_t count = 200;
+/**
+ * pinIndexRead - reads the data off a specfic pin index. SDI 12 supports pins 
+ *                8, 9, 10, 11, 14, 15, 16
+ * 
+ * @param size_t index - the pin index to read 
+ * @return bool - there was a valid command read processed
+ */
+bool pinIndexRead(size_t index) {
+  size_t count = 6000;
   size_t iter = 0;
-  int process = 0;
-  String sendContext = "result_" + String(i) + " ";
+  // int process = 0;
+  // this will return this identity back over the serial bus
+  String sendContext = "result_" + String(index) + " ";
   while(!sdiEvent->isReady() && iter < count) {
-    process = processInputSerial(sdiEvent, &mySDI12, false, sendContext);
+    readSerial(event);
+    processInputSerial(sdiEvent, &mySDI12, false, sendContext);
     iter++;
-    delay(10);
+    delay(1);
   } 
   sdiEvent->clear();
   return iter < count;
 }
-
+/**
+ * sendErrorIndex - Sends an error for a read on a specific index. SDI 12 supports pins 
+ *                8, 9, 10, 11, 14, 15, 16
+ * 
+ * @param size_t index - the pin index that failed 
+ * @return void
+ */
 void sendErrorIndex(size_t index) {
   String error = "ERROR_" + String(index);
   Serial1.println(error);
 }
 
-
-void sendByIndex(SDIReadEvent * event, int index) {
+/**
+ * sendByIndex - Sends a command on a specific index. SDI 12 supports pins 
+ *                8, 9, 10, 11, 14, 15, 16
+ * 
+ * @param SDIReadEvent * event - contains the event data
+ * @param size_t index - the pin index with the command 
+ * @return void
+ */
+void sendByIndex(SDIReadEvent * event, size_t index) {
   mySDI12.setDataPin(dataPins[index]);
   String cmd = getCMDValues(event);
   log(index);log(" ");logln(cmd);
@@ -317,7 +386,12 @@ void sendByIndex(SDIReadEvent * event, int index) {
   } 
 }
 
-// HERE
+/**
+ * setSDICommand - Sends a command to all registered pins 
+ *                
+ * @param SDIReadEvent * event - contains the event data
+ * @return void
+ */
 void setSDICommand(SDIReadEvent * event) {
    if (event->isWorking()) {
       return;
@@ -327,30 +401,67 @@ void setSDICommand(SDIReadEvent * event) {
     sendByIndex(event, i);
    }
 }
-
+/**
+ * setSDICommandSimple - Sends a command to the first registered pin
+ *                
+ * @param SDIReadEvent * event - contains the event data
+ * @return void
+ */
+void setSDICommandSimple(SDIReadEvent * event) {
+   if (event->isWorking()) {
+      return;
+   }
+   event->setToWork();
+   mySDI12.setDataPin(dataPins[0]);
+   String cmd = getCMDValues(event);
+   // logln(cmd);
+   mySDI12.sendCommand(cmd);
+}
+/**
+ * getRequestIndex - gets the pin index from the request string
+ *                
+ * @param String request - contains string request from the serial bus
+ * @return int - the index that has been pulled from the string
+ */
 int getRequestIndex(String request) {
   request.replace("request_", "");
   return atoi(request.c_str());
 }
-
+/**
+ * getCommand - gets the command that is to be sent to the device request_1 0R0!
+ *                
+ * @param String request - contains string request from the serial bus, i.e 
+ * @return String - the command
+ */
 String getCommand(String request) {
   int index = request.indexOf(" ");
   return request.substring(index + 1);
 }
-
+/**
+ * processSensorRequest - wrapper function for sending the command to the sensor
+ *                
+ * @param SDIReadEvent * eventt - contains the event data
+ * @return void
+ */
 void processSensorRequest(SDIReadEvent * event) {
   String localRead = event->getRead();
   int index = getRequestIndex(localRead);
   if (index > pinCount - 1) {
     return sendErrorIndex(index);
   }
+  event->setToWork();
   String cmd = getCommand(localRead);
   event->setRead(cmd);
   sendByIndex(event, index);
   event->clear();
 }
 
-
+/**
+ * processSerialCommand - sends the command to the correct function for processing
+ *                
+ * @param SDIReadEvent * eventt - contains the event data
+ * @return void
+ */
 void processSerialCommand(SDIReadEvent * event) {
    String localRead = event->getRead();
    if (localRead.startsWith("pop")) {
@@ -361,12 +472,19 @@ void processSerialCommand(SDIReadEvent * event) {
      // logIt(event);
    } else if (localRead.startsWith("request")) {
      processSensorRequest(event);
-   } else if (localRead) {
-     setSDICommand(event);
+   } else if (localRead.startsWith("0R")) {
+     setSDICommandSimple(event);
+   } else {
+     log("Unknown Command ");logln(localRead);
    }
    event->clear(); 
 }
-
+/**
+ * automaticSend - if automatic mode is selected it will just process the data after an interval
+ *                
+ * @param SDIReadEvent * eventt - contains the event data
+ * @return void
+ */
 void automaticSend(SDIReadEvent * event) {  
    event->setRead(serialMsgStr);
    lastTime = millis();  
@@ -374,38 +492,88 @@ void automaticSend(SDIReadEvent * event) {
    event->clear(); 
    send = false;       
 }
-
+/**
+ * isReadyForAutoSend - checks of auto send is enabled an the send time has elapsed
+ *                
+ * @return bool - ready for sending
+ */
 bool isReadyForAutoSend() {
   return AUTOMATIC && (millis() - lastTime) > (waitTime * mili);
 }
-
+/**
+ * processActivity - wrapper function called on every loop to process a serial request
+ *                
+ * @param SDIReadEvent * eventt - contains the event data
+ * @return void
+ */
 void processActivity(SDIReadEvent * event) {     
    if (isReadyForAutoSend()) {
     automaticSend(event);
-  } else if (!AUTOMATIC)  {
-    if (!event->isReady() || event->isWorking()) {
-      return;
-    }
+  } else if (!AUTOMATIC && event->isReady())  {
     processSerialCommand(event);
   }  
 }
-
+/**
+ * loop - primary arduino loop
+ *                
+ * @return void
+ */
 void loop() {
   readSerial(event);
   processActivity(event);
   processInputSerial(sdiEvent, &mySDI12, true);
 }
-
-int processInputSerial(SDIReadEvent * event, SDI12 * readBuffer, bool withClear) {
+/**
+ * processInputSerial - wrapper function to process the sdi12 serial bus
+ *                
+ * @param SDIReadEvent * eventt - contains the event data
+ * @param SDI12 * readBuffer - the sdi12 object being read
+ * @param bool withClear - if the function should clear the event contents onces sent
+ * @return bool - the read is read to be processed
+ */
+bool processInputSerial(SDIReadEvent * event, SDI12 * readBuffer, bool withClear) {
   return processInputSerial(event, readBuffer, withClear, "");
 }
+/**
+ * processInputSerial - primary function to process the sdi12 serial bus
+ *                
+ * @param SDIReadEvent * eventt - contains the event data
+ * @param SDI12 * readBuffer - the sdi12 object being read
+ * @param bool withClear - if the function should clear the event contents onces sent
+ * @param String preppend - any string value that should proceed the wrapped string values
+ * @return bool - the read is read to be processed
+ */
+bool processInputSerial(SDIReadEvent * event, SDI12 * readBuffer, bool withClear, String preppend) {
+  bool ready = hasFinalizedRequestContent(event, readBuffer);
+  if (ready) {
+    String sdiMsgStr = event->getRead();
+    if (sdiMsgStr != "") {
+     String send = preppend + sdiMsgStr;
+     logln(send);
+     // sends out paylad back over the serial bus
+     Serial1.println(send);
+    }
+    // 
+    if (withClear) {
+      event->clear();  
+    }
+  }
+  return ready;
+}
 
-int processInputSerial(SDIReadEvent * event, SDI12 * readBuffer, bool withClear, String preppend) {
+/**
+ * processInputSerial - reads the actual sdi12 serial bus
+ *                
+ * @param SDIReadEvent * eventt - contains the event data
+ * @param SDI12 * readBuffer - the sdi12 object being read
+ * @return bool - the read is read to be processed
+ */
+bool hasFinalizedRequestContent(SDIReadEvent * event, SDI12 * readBuffer) {
   int avail = readBuffer->available();
   if (avail < 0) { 
-   // Buffer is full; clear
    readBuffer->clearBuffer(); 
-   event->clear(); 
+   event->clear();    
+   return false;
   } else if (avail > 0) {    
     event->setToWork();
     for (int a=0; a<avail; a++) {
@@ -422,49 +590,48 @@ int processInputSerial(SDIReadEvent * event, SDI12 * readBuffer, bool withClear,
       }
     }
   }
-
-  String sdiMsgStr = event->getRead();
-  if (event->isReady()) {
-    if (sdiMsgStr != "") {
-     String send = preppend + sdiMsgStr;
-     logln(send);
-     Serial1.println(send);
-    }
-    if (withClear) {
-      event->clear();  
-    }
-  }
-  return avail;
+  return event->isReady();
 }
 
+/**
+ * readSerial - reads bytes off the serial bus
+ *                
+ * @param SDIReadEvent * eventt - contains the event data
+ * @return bool - has a given command finished sending
+ */
 bool readSerial(SDIReadEvent * event)
 {
-   if (event->isWorking()) {
-    return 0;
+   if (event->isWorking() || event->isReady()) {
+    return false;
    }    
    int avail = Serial1.available();
-   for (int i = 0; i < avail && !event->isReady(); i++)
+   for (int i = 0; i < avail; i++)
    {
     char inChar = Serial1.read();
     // log(inChar);
+    
     if (inChar == '\n' || inChar == '\0' )
     {
+      //log(inChar);
        if (inChar == '\n') {
          event->build(inChar);
        }
        event->setReady();
-       return 1;
-    }
+       return true;
+     }
      if (inChar != '\r')
      {
       event->build(inChar);
-    }
+     }
   }
-  return 0;
+  return false;
 }
 
-
-
+/*
+ * Logging templates that can be toggled on and off
+ * for debugging
+ * 
+ */
 template<class T>
 void logln(T param) {
  if (DEBUG_MODE == false) {
