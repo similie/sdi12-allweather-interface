@@ -227,8 +227,7 @@ unsigned long getLineCount(int count) {
 
   const unsigned long SIZE = myFile.size();
   
-  log("I HAVE A FILE OF SIZE ");
-  logln(myFile.size());
+  log("I HAVE A FILE OF SIZE ");logln(myFile.size());
   // Postion the file from the last know position
   myFile.seek(position);
   
@@ -238,7 +237,6 @@ unsigned long getLineCount(int count) {
    Serial1.print(readChar);
    position = myFile.position();
    if (readChar == '\n') {
-    // Serial1.print('\n');
     Serial1.print(getPopIndex(i));
     i++;
    }
@@ -266,10 +264,10 @@ unsigned long getLineCount(int count) {
  */
 void pop(SDIReadEvent * event) {
 
-  if (!hasFile) {
-      Serial.print("File Failed to initialize");
-      return;
-  }
+ if (!hasFile) {
+     Serial.print("File Failed to initialize");
+     return;
+ }
 
  if (event->fileKeeping()) {
     return;
@@ -344,7 +342,6 @@ String getCMDValues(SDIReadEvent * event) {
 bool pinIndexRead(size_t index) {
   size_t count = 6000;
   size_t iter = 0;
-  // int process = 0;
   // this will return this identity back over the serial bus
   String sendContext = "result_" + String(index) + " ";
   while(!sdiEvent->isReady() && iter < count) {
@@ -379,7 +376,7 @@ void sendErrorIndex(size_t index) {
 void sendByIndex(SDIReadEvent * event, size_t index) {
   mySDI12.setDataPin(dataPins[index]);
   String cmd = getCMDValues(event);
-  log(index);log(" ");logln(cmd);
+  log(index);log(" ");log(cmd);
   mySDI12.sendCommand(cmd);    
   if (!pinIndexRead(index)) {
     sendErrorIndex(index);
