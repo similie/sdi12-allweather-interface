@@ -3,9 +3,10 @@
 #define RESTORATION_BUFFER_SIZE 100
 #define CONSOLE_BAUD 115200
 #define SERIAL_BAUD 9600  // The baud rate for the output serial port
-#define DATA_PIN 10
-
-#define SECONDARY_DATA_PIN 11
+#define DATA_PIN 10 // green off port1
+#define SECONDARY_DATA_PIN 11 // stripe green off port1
+#define THIRD_DATA_PIN 13 // stripe blue
+// #define FOURTH_PIN 12 // blue not test
 // The pin of the SDI-12 data bus
 #define POWER_PIN -1       // The sensor power pin (or -1 if not switching power)
 #define SENSOR_ADDRESS 1
@@ -118,8 +119,9 @@ SDIReadEvent * sdiEvent = new SDIReadEvent();
 const int chipSelect = 4;
 // File myFile;0
 // Define the SDI-12 bus
-size_t pinCount = 2;
-int dataPins[] = {DATA_PIN, SECONDARY_DATA_PIN};
+size_t pinCount = 3;
+// pin definition array
+int dataPins[] = {DATA_PIN, SECONDARY_DATA_PIN, THIRD_DATA_PIN};
 
 SDI12 mySDI12(DATA_PIN);
 // SDI12 secondarySDI12(SECONDARY_DATA_PIN);
@@ -230,19 +232,27 @@ unsigned long getLineCount(int count) {
   log("I HAVE A FILE OF SIZE ");logln(myFile.size());
   // Postion the file from the last know position
   myFile.seek(position);
-  
-  while (myFile.available() && (i <= count || DUMPALL)) {
+  size_t tickIndex = 0; 
+
+  while (myFile.available() && (i < count || DUMPALL)) {
+   if (tickIndex == 0) {
+    String identity = getPopIndex(i);
+    log(identity);
+    Serial1.print(identity);
+   }
+   tickIndex++;
+   
    char readChar = myFile.read();
    log(readChar);
    Serial1.print(readChar);
    position = myFile.position();
    if (readChar == '\n') {
-    Serial1.print(getPopIndex(i));
     i++;
+    tickIndex = 0;
    }
   }
   
-  Serial1.write('\0');
+  // Serial1.write('\0');
   
   myFile.flush();
   myFile.close();
@@ -302,8 +312,9 @@ void push(SDIReadEvent * event) {
    String ourReading = event->getRead();
    File myFile = SD.open(FILE_NAME, FILE_WRITE);
    if (myFile) {
-    log(ourReading.substring(5));
-    myFile.print(ourReading.substring(5)); 
+    String save = ourReading.startsWith("push") ? ourReading.substring(5) : ourReading;
+    log(save);
+    myFile.print(save); 
     myFile.flush();
     myFile.close(); 
    } else {
@@ -340,7 +351,7 @@ String getCMDValues(SDIReadEvent * event) {
  * @return bool - there was a valid command read processed
  */
 bool pinIndexRead(size_t index) {
-  size_t count = 6000;
+  size_t count = 1000;
   size_t iter = 0;
   // this will return this identity back over the serial bus
   String sendContext = "result_" + String(index) + " ";
@@ -361,7 +372,7 @@ bool pinIndexRead(size_t index) {
  * @return void
  */
 void sendErrorIndex(size_t index) {
-  String error = "ERROR_" + String(index);
+  String error = "ERROR_" + String(index) + " An unknown serial error occurred";
   Serial1.println(error);
 }
 
