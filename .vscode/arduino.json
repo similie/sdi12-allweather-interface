@@ -1,5 +1,0 @@
-{
-    "port": "/dev/ttyACM0",
-    "board": "adafruit:avr:feather32u4",
-    "sketch": "Atmos_2/Atmos_2.ino"
-}
