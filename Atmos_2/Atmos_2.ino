@@ -1,12 +1,12 @@
 #include <SDI12.h>
-//
+
 #define RESTORATION_BUFFER_SIZE 100
 #define CONSOLE_BAUD 115200
 #define SERIAL_BAUD 9600  // The baud rate for the output serial port
 #define DATA_PIN 10 // green off port1
 #define SECONDARY_DATA_PIN 11 // stripe green off port1
 #define THIRD_DATA_PIN 13 // stripe blue
-// #define FOURTH_PIN 12 // blue not test
+// #define FOURTH_PIN 12 // blue not tested
 // The pin of the SDI-12 data bus
 #define POWER_PIN -1       // The sensor power pin (or -1 if not switching power)
 #define SENSOR_ADDRESS 1
@@ -20,7 +20,8 @@
 
 //static String serialMsgStr = "0R4!";
 static String serialMsgStr = "0R0!";
-
+// we don't want it checking on every loop
+const unsigned long SD_CARD_INIT_CHECK = 100000;
 const int READ_BUF_SIZE = 116;
 const long mili = 1000  ;
 const long waitTime = 10;
@@ -28,10 +29,6 @@ boolean send = false;
 unsigned long lastTime = 0;
 char RESTORATION_BUFFER[RESTORATION_BUFFER_SIZE];
 
-// set up variables using the SD utility library functions:
-//Sd2Card card;
-//SdVolume volume;
-//SdFile root;
 class SDIReadEvent {
   private:  
     String read;
@@ -107,15 +104,12 @@ const char * POSITION_FILE = "position";
 const char * FILE_NAME = "reads.txt";
 const char * TEMP_FILE  = "temp.txt";
 const char * LOG_FILE  = "log.txt";
-bool hasFile = true;
+bool hasFile = false;
+unsigned long sdInstantiator = 0;
 
 SDIReadEvent * event = new SDIReadEvent();
 SDIReadEvent * sdiEvent = new SDIReadEvent();
-// change this to match your SD shield or module;m
-// Arduino Ethernet shield: pin 4
-// Adafruit SD shields and modules: pin 10
-// Sparkfun SD shield: pin 8
-// MKRZero SD: SDCARD_SS_PIN
+// Arduino Ethernet shield: pin 4 
 const int chipSelect = 4;
 // File myFile;0
 // Define the SDI-12 bus
@@ -124,8 +118,33 @@ size_t pinCount = 3;
 int dataPins[] = {DATA_PIN, SECONDARY_DATA_PIN, THIRD_DATA_PIN};
 
 SDI12 mySDI12(DATA_PIN);
-// SDI12 secondarySDI12(SECONDARY_DATA_PIN);
 
+/**
+ * initializeTheSDCard  
+ * 
+ * We want the file to instantiate when we
+ * have it in the device
+ *
+ * @return void
+ */
+void initializeTheSDCard()
+{
+  if (hasFile) {
+     return;
+  }
+
+  if (!SD.begin(chipSelect)) {
+    logln("initialization failed!");
+    hasFile = false;
+  } else {
+    logln("SD Card Available");
+    hasFile = true;
+  }
+}
+
+/*
+ * Initial Arduino setup function. All init actions go here
+ */
 void setup(){
   Serial.begin(CONSOLE_BAUD);
   Serial1.begin(SERIAL_BAUD);
@@ -138,19 +157,41 @@ void setup(){
     delay(200);
   }
 
-  delay(5000);
+  delay(1000);
   // Initiate serial connection to SDI-12 bus
   mySDI12.begin();
   delay(500);
   mySDI12.forceListen();
+  // start the SD Card reader
+  initializeTheSDCard();
   
-  if (!SD.begin(chipSelect)) {
-    logln("initialization failed!");
-    hasFile = false;
-    return;
-  }
-  logln("initialization done.");
+  logln("Startup done.");
   delay(2000);
+}
+
+/**
+ * checkSDCard 
+ * 
+ * If we pop a new SD card after it has booted. We want to be 
+ * able to respond
+ * 
+ * @param const * char filename - the file to remove
+ * @return bool - true if the file is removed
+ */
+void checkSDCard()
+{
+  if (hasFile) {
+     return;
+  }
+
+  if (sdInstantiator >= SD_CARD_INIT_CHECK) {
+    logln("Attempting to power up the sd card reader");
+    initializeTheSDCard();
+    sdInstantiator = 0;
+  } else {
+    sdInstantiator++;
+  }
+  
 }
 
 /**
@@ -162,6 +203,7 @@ void setup(){
 bool kilFile (const char * filename) {
   return SD.remove(filename);
 }
+
 /**
  * getPopIndex - appends the popped data with with the pop identity
  * and it's corresponding index
@@ -172,6 +214,7 @@ bool kilFile (const char * filename) {
 String getPopIndex(size_t index) {
   return String("pop ") + String(index) + String(" ");
 }
+
 /**
  * setPosition - retains the file position index for later retrieval
  * 
@@ -180,6 +223,7 @@ String getPopIndex(size_t index) {
  */
 bool setPosition(unsigned long position) {
     if (SD.exists(POSITION_FILE) && !kilFile(POSITION_FILE)) {
+       hasFile = false;
        return false;
     }
     File myFile = SD.open(POSITION_FILE, FILE_WRITE);
@@ -188,6 +232,7 @@ bool setPosition(unsigned long position) {
     myFile.close();
     return true;
 }
+
 /**
  * getPosition - gets the value of the file position stored in file 
  * 
@@ -198,6 +243,10 @@ unsigned long getPosition() {
     return 0;
   }
   File myFile = SD.open(POSITION_FILE);
+  if (!myFile) {
+      hasFile = false;
+      return 0;
+  }
   char readChar;
   String value;
   while(myFile.available()) {
@@ -207,6 +256,7 @@ unsigned long getPosition() {
   myFile.close();
   return strtoul(value.c_str(), NULL, 10);
 } 
+
 /**
  * getLineCount - gets the number of lines in the storage file as input
  * 
@@ -223,7 +273,7 @@ unsigned long getLineCount(int count) {
     return position;
   }
   
-  File myFile = SD.open(FILE_NAME);
+  File myFile = SD.open(FILE_NAME);  
   char readChar;
   size_t i = 0;
 
@@ -251,9 +301,7 @@ unsigned long getLineCount(int count) {
     tickIndex = 0;
    }
   }
-  
-  // Serial1.write('\0');
-  
+
   myFile.flush();
   myFile.close();
 
@@ -266,6 +314,7 @@ unsigned long getLineCount(int count) {
   }
   return position;
 }
+
 /**
  * pop - pops lines from the storage file requested over serial
  * 
@@ -275,7 +324,7 @@ unsigned long getLineCount(int count) {
 void pop(SDIReadEvent * event) {
 
  if (!hasFile) {
-     Serial.print("File Failed to initialize");
+     logln("File Failed to initialize");
      return;
  }
 
@@ -290,6 +339,7 @@ void pop(SDIReadEvent * event) {
  unsigned long pointerIndex = getLineCount(count);
  event->setFileKeeper(false);
 }
+
 /**
  * push - pushes data lines requested over serial
  * 
@@ -299,7 +349,7 @@ void pop(SDIReadEvent * event) {
 void push(SDIReadEvent * event) {
 
    if (!hasFile) {
-     Serial.print("File Failed to initialize");
+     logln("File Failed to initialize");
      return;
    }
   
@@ -318,11 +368,13 @@ void push(SDIReadEvent * event) {
     myFile.flush();
     myFile.close(); 
    } else {
+     hasFile = false;
      Serial.print("error opening ");
      Serial.println(FILE_NAME);
    }
    event->setFileKeeper(false);
 }
+
 /**
  * getPopSize - pulls the interger pop value from the request string
  * 
@@ -333,6 +385,7 @@ int getPopSize(String ourReading) {
   String substring = ourReading.substring(4);
   return atoi(substring.c_str());
 }
+
 /**
  * getCMDValues - pulls a given command string from an SDIReadEvent object
  * 
@@ -343,6 +396,7 @@ String getCMDValues(SDIReadEvent * event) {
    String cmd = event->getRead();
    return cmd;
 }
+
 /**
  * pinIndexRead - reads the data off a specfic pin index. SDI 12 supports pins 
  *                8, 9, 10, 11, 14, 15, 16
@@ -364,6 +418,7 @@ bool pinIndexRead(size_t index) {
   sdiEvent->clear();
   return iter < count;
 }
+
 /**
  * sendErrorIndex - Sends an error for a read on a specific index. SDI 12 supports pins 
  *                8, 9, 10, 11, 14, 15, 16
@@ -409,6 +464,7 @@ void setSDICommand(SDIReadEvent * event) {
     sendByIndex(event, i);
    }
 }
+
 /**
  * setSDICommandSimple - Sends a command to the first registered pin
  *                
@@ -425,6 +481,7 @@ void setSDICommandSimple(SDIReadEvent * event) {
    // logln(cmd);
    mySDI12.sendCommand(cmd);
 }
+
 /**
  * getRequestIndex - gets the pin index from the request string
  *                
@@ -435,6 +492,7 @@ int getRequestIndex(String request) {
   request.replace("request_", "");
   return atoi(request.c_str());
 }
+
 /**
  * getCommand - gets the command that is to be sent to the device request_1 0R0!
  *                
@@ -445,6 +503,7 @@ String getCommand(String request) {
   int index = request.indexOf(" ");
   return request.substring(index + 1);
 }
+
 /**
  * processSensorRequest - wrapper function for sending the command to the sensor
  *                
@@ -465,6 +524,20 @@ void processSensorRequest(SDIReadEvent * event) {
 }
 
 /**
+ * sendPong
+ * 
+ * Used to respond to the the primary that's checking if the
+ * serial device is available
+ * 
+ * @return void
+ */
+void sendPong()
+{
+  logln("Ping Event Detected");
+  Serial1.println("pong");
+}
+
+/**
  * processSerialCommand - sends the command to the correct function for processing
  *                
  * @param SDIReadEvent * eventt - contains the event data
@@ -480,6 +553,8 @@ void processSerialCommand(SDIReadEvent * event) {
      // logIt(event);
    } else if (localRead.startsWith("request")) {
      processSensorRequest(event);
+   } else if (localRead.startsWith("ping")) {
+     sendPong();
    } else if (localRead.startsWith("0R")) {
      setSDICommandSimple(event);
    } else {
@@ -487,6 +562,7 @@ void processSerialCommand(SDIReadEvent * event) {
    }
    event->clear(); 
 }
+
 /**
  * automaticSend - if automatic mode is selected it will just process the data after an interval
  *                
@@ -500,6 +576,7 @@ void automaticSend(SDIReadEvent * event) {
    event->clear(); 
    send = false;       
 }
+
 /**
  * isReadyForAutoSend - checks of auto send is enabled an the send time has elapsed
  *                
@@ -508,6 +585,7 @@ void automaticSend(SDIReadEvent * event) {
 bool isReadyForAutoSend() {
   return AUTOMATIC && (millis() - lastTime) > (waitTime * mili);
 }
+
 /**
  * processActivity - wrapper function called on every loop to process a serial request
  *                
@@ -521,6 +599,7 @@ void processActivity(SDIReadEvent * event) {
     processSerialCommand(event);
   }  
 }
+
 /**
  * loop - primary arduino loop
  *                
@@ -530,7 +609,9 @@ void loop() {
   readSerial(event);
   processActivity(event);
   processInputSerial(sdiEvent, &mySDI12, true);
+  checkSDCard();
 }
+
 /**
  * processInputSerial - wrapper function to process the sdi12 serial bus
  *                
@@ -542,6 +623,7 @@ void loop() {
 bool processInputSerial(SDIReadEvent * event, SDI12 * readBuffer, bool withClear) {
   return processInputSerial(event, readBuffer, withClear, "");
 }
+
 /**
  * processInputSerial - primary function to process the sdi12 serial bus
  *                
