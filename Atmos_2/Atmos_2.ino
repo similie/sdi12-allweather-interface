@@ -5,8 +5,9 @@
 #define SERIAL_BAUD 9600  // The baud rate for the output serial port
 #define DATA_PIN 10 // green off port1
 #define SECONDARY_DATA_PIN 11 // stripe green off port1
-#define THIRD_DATA_PIN 13 // stripe blue
-// #define FOURTH_PIN 12 // blue not tested
+#define THIRD_DATA_PIN  13
+// blue
+// #define FOURTH_PIN 13 // stripe blue
 // The pin of the SDI-12 data bus
 #define POWER_PIN -1       // The sensor power pin (or -1 if not switching power)
 #define SENSOR_ADDRESS 1
@@ -164,9 +165,12 @@ void setup(){
   mySDI12.forceListen();
   // start the SD Card reader
   initializeTheSDCard();
+
+  
+  // pinMode(THIRD_DATA_PIN, INPUT_PULLDOWN);
   
   logln("Startup done.");
-  delay(2000);
+  //delay(2000);
 }
 
 /**
@@ -440,7 +444,9 @@ void sendErrorIndex(size_t index) {
  * @return void
  */
 void sendByIndex(SDIReadEvent * event, size_t index) {
-  mySDI12.setDataPin(dataPins[index]);
+  int pin = dataPins[index];
+  log("GOT THIS PIN ");logln(pin);
+  mySDI12.setDataPin(pin);
   String cmd = getCMDValues(event);
   log(index);log(" ");log(cmd);
   mySDI12.sendCommand(cmd);    
