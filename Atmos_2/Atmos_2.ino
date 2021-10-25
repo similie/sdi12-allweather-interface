@@ -3,14 +3,16 @@
 #include <SPI.h>
 #include <SD.h>
 
+#define PROCESSOR_TYPE "MO_SAMD_21G18"
+// #define PROCESSOR_TYPE "FW_32u4"
+
 #define RESTORATION_BUFFER_SIZE 100
 #define CONSOLE_BAUD 115200
-#define SERIAL_BAUD 9600      // The baud rate for the output serial port
+#define SERIAL_BAUD  76800 // 9600      // The baud rate for the output serial port
 #define DATA_PIN 10           // green off port1
 #define SECONDARY_DATA_PIN 11 // stripe green off port1
-#define THIRD_DATA_PIN 13
-// blue
-// #define FOURTH_PIN 13 // stripe blue
+#define THIRD_DATA_PIN 12     // blue
+#define FOURTH_DATA_PIN 13    // stripe blue
 // The pin of the SDI-12 data bus
 #define POWER_PIN -1 // The sensor power pin (or -1 if not switching power)
 #define SENSOR_ADDRESS 1
@@ -22,7 +24,7 @@
 static String serialMsgStr = "0R0!";
 // we don't want it checking on every loop
 const unsigned long SD_CARD_INIT_CHECK = 100000;
-const int READ_BUF_SIZE = 116;
+// const int READ_BUF_SIZE = 116;
 const long mili = 1000;
 const long waitTime = 10;
 boolean send = false;
@@ -121,14 +123,14 @@ bool hasFile = false;
 unsigned long sdInstantiator = 0;
 
 SDIReadEvent *event = new SDIReadEvent();
-SDIReadEvent *sdiEvent = new SDIReadEvent();
+// SDIReadEvent *sdiEvent = new SDIReadEvent();
 // Arduino Ethernet shield: pin 4
 const int chipSelect = 4;
 // File myFile;0
 // Define the SDI-12 bus
-size_t pinCount = 3;
+size_t pinCount = 4;
 // pin definition array
-int dataPins[] = {DATA_PIN, SECONDARY_DATA_PIN, THIRD_DATA_PIN};
+int dataPins[] = {DATA_PIN, SECONDARY_DATA_PIN, THIRD_DATA_PIN, FOURTH_DATA_PIN};
 
 SDI12 mySDI12(DATA_PIN);
 
@@ -463,16 +465,19 @@ bool pinIndexRead(size_t index)
 {
   size_t count = 1000;
   size_t iter = 0;
+  SDIReadEvent *sdiEvent = new SDIReadEvent();
   // this will return this identity back over the serial bus
   String sendContext = "result_" + String(index) + " ";
   while (!sdiEvent->isReady() && iter < count)
   {
-    readSerial(event);
+    // readSerial(event);
+    // processActivity(event);
     processInputSerial(sdiEvent, &mySDI12, false, sendContext);
     iter++;
     delay(1);
   }
   sdiEvent->clear();
+  delete sdiEvent;
   return iter < count;
 }
 
@@ -584,16 +589,22 @@ String getCommand(String request)
 void processSensorRequest(SDIReadEvent *event)
 {
   String localRead = event->getRead();
+  
+  // log("ANOTHER EVENT ");log(localRead);
   int index = getRequestIndex(localRead);
   if (index > pinCount - 1)
   {
     return sendErrorIndex(index);
   }
   event->setToWork();
+  // event->clear();
+  
+  SDIReadEvent *eventLocal = new SDIReadEvent();
   String cmd = getCommand(localRead);
-  event->setRead(cmd);
-  sendByIndex(event, index);
-  event->clear();
+  eventLocal->setRead(cmd);
+  sendByIndex(eventLocal, index);
+  eventLocal->clear();
+  delete eventLocal;
 }
 
 /**
@@ -607,7 +618,7 @@ void processSensorRequest(SDIReadEvent *event)
 void sendPong()
 {
   logln("Ping Event Detected");
-  Serial1.println("pong");
+  Serial1.println("pong " + String(PROCESSOR_TYPE));
 }
 
 /**
@@ -619,6 +630,7 @@ void sendPong()
 void processSerialCommand(SDIReadEvent *event)
 {
   String localRead = event->getRead();
+  // log(localRead);
   if (localRead.startsWith("pop"))
   {
     pop(event);
@@ -642,7 +654,10 @@ void processSerialCommand(SDIReadEvent *event)
   else if (localRead.startsWith("0R"))
   {
     setSDICommandSimple(event);
-  }
+  } 
+  else if (localRead.startsWith("$")) {
+     log(localRead);
+  } 
   else
   {
     log("Unknown Command ");
@@ -703,7 +718,7 @@ void loop()
 {
   readSerial(event);
   processActivity(event);
-  processInputSerial(sdiEvent, &mySDI12, true);
+  // processInputSerial(sdiEvent, &mySDI12, true);
   checkSDCard();
 }
 
@@ -752,11 +767,10 @@ bool processInputSerial(SDIReadEvent *event, SDI12 *readBuffer, bool withClear, 
 }
 
 /**
- * processInputSerial - reads the actual sdi12 serial bus
+ * hasFinalizedRequestContent - reads the actual sdi12 serial bus
  *                
  * @param SDIReadEvent * eventt - contains the event data
  * @param SDI12 * readBuffer - the sdi12 object being read
- * @return bool - the read is read to be processed
  */
 bool hasFinalizedRequestContent(SDIReadEvent *event, SDI12 *readBuffer)
 {
@@ -832,40 +846,41 @@ bool readSerial(SDIReadEvent *event)
  * for debugging
  * 
  */
-template <class T>
-void logln(T param)
+void logString(String logString, bool ln)
 {
   if (DEBUG_MODE == false)
   {
     return;
   }
-  String logString = String(param);
-  Serial.println(logString);
+
+  if (ln)
+  {
+    Serial.println(logString);
+  }
+  else
+  {
+    Serial.print(logString);
+  }
 }
 
-void logString(String logString) {
-    if (DEBUG_MODE == false)
-  {
-    return;
-  }
-
-  Serial.print(logString);
+template <class T>
+void logln(T param)
+{
+  logString(String(param), true);
 }
 
 template <class T>
 void log(T param)
 {
-  logString(String(param));
+  logString(String(param), false);
 }
 
 void log(char param)
 {
-  logString(String(param));
+  logString(String(param), false);
 }
 
 void log(size_t param)
 {
-  logString(String(param));
+  logString(String(param), false);
 }
-
-
