@@ -164,34 +164,48 @@ void initializeTheSDCard()
 /*
  * Initial Arduino setup function. All init actions go here
  */
-void setup()
-{
-  Serial.begin(CONSOLE_BAUD);
-  Serial1.begin(SERIAL_BAUD);
-  while (!Serial1)
-    ;
-  // Power the sensors;
-  if (POWER_PIN > 0)
-  {
-    logln("Powering up sensors...");
-    pinMode(POWER_PIN, OUTPUT);
-    digitalWrite(POWER_PIN, HIGH);
-    delay(200);
-  }
+// void setup()
+// {
+//   Serial.begin(CONSOLE_BAUD);
+//   Serial1.begin(SERIAL_BAUD);
+//   while (!Serial1)
+//     ;
+//   // Power the sensors;
+//   if (POWER_PIN > 0)
+//   {
+//     logln("Powering up sensors...");
+//     pinMode(POWER_PIN, OUTPUT);
+//     digitalWrite(POWER_PIN, HIGH);
+//     delay(200);
+//   }
 
-  delay(1000);
-  // Initiate serial connection to SDI-12 bus
-  mySDI12.begin();
-  delay(500);
-  mySDI12.forceListen();
-  // start the SD Card reader
-  initializeTheSDCard();
+//   delay(1000);
+//   // Initiate serial connection to SDI-12 bus
+//   mySDI12.begin();
+//   delay(500);
+//   mySDI12.forceListen();
+//   // start the SD Card reader
+//   initializeTheSDCard();
 
-  // pinMode(THIRD_DATA_PIN, INPUT_PULLDOWN);
+//   // pinMode(THIRD_DATA_PIN, INPUT_PULLDOWN);
 
-  logln("Startup done.");
-  //delay(2000);
-}
+//   logln("Startup done.");
+//   //delay(2000);
+// }
+
+
+/**
+ * loop - primary arduino loop
+ *                
+ * @return void
+ */
+// void loop()
+// {
+//   readSerial(event);
+//   processActivity(event);
+//   // processInputSerial(sdiEvent, &mySDI12, true);
+//   checkSDCard();
+// }
 
 /**
  * checkSDCard 
@@ -633,7 +647,7 @@ void processSerialCommand(SDIReadEvent *event)
   // log(localRead);
   if (localRead.startsWith("pop"))
   {
-    pop(event);
+    // pop(event);
   }
   else if (localRead.startsWith("push"))
   {
@@ -707,19 +721,6 @@ void processActivity(SDIReadEvent *event)
   {
     processSerialCommand(event);
   }
-}
-
-/**
- * loop - primary arduino loop
- *                
- * @return void
- */
-void loop()
-{
-  readSerial(event);
-  processActivity(event);
-  // processInputSerial(sdiEvent, &mySDI12, true);
-  checkSDCard();
 }
 
 /**
