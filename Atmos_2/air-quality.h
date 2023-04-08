@@ -10,6 +10,7 @@ class AirQuality
 public:
   AirQuality();
   String getReading();
+  String getName();
 private:
   const int AIR_QUALITY_PORT = 9600;
   static const  size_t DEVICE_LENGTH = 3;

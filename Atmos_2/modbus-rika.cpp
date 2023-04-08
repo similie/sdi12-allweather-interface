@@ -2,22 +2,32 @@
 
 
 ModbusRika::ModbusRika() {
-
-}
+  setupPin();
+} 
 
 
 ModbusRika::ModbusRika(RikaDevice devices[], size_t deviceLength) {
   this->devices = devices;
   this->deviceLength = deviceLength;
+  setupPin();
+}
+
+void ModbusRika::setupPin() {
+  pinMode(POWER_PIN, OUTPUT);
+  digitalWrite(POWER_PIN, LOW);
 }
 
 void ModbusRika::begin(int port) {
+  digitalWrite(POWER_PIN, HIGH);
+  delay(200);
   Serial1.begin(port);
   node.begin(0, Serial1);
 }
 
 void ModbusRika::end() {
   Serial1.end();
+  delay(200);
+  digitalWrite(POWER_PIN, LOW);
 }
 
 int ModbusRika::deviceAddress(uint16_t index, RikaDevice * device) {

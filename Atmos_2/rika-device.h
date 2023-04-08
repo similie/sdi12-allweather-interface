@@ -33,7 +33,7 @@ class RikaDevice
 public:
   RikaDevice(int);
   RikaDevice(int, u_int8_t *, size_t);
-  String airQualityNames[MAX_PARAM_SIZE] = {"temp", "hum", "pressure", "pm2_5", "pm10", "o3", "ch4", "co2", "no2", "so2"};
+  String airQualityNames[MAX_PARAM_SIZE] = {"temp", "hum", "pres", "pm2_5", "pm10", "o3", "ch4", "co2", "no2", "so2"};
   u_int16_t airQualityAddresses[MAX_PARAM_SIZE] = {
     0x0000, // temp
     0x0001, // humidity

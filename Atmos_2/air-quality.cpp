@@ -12,6 +12,10 @@ void AirQuality::shutdown() {
   rika->end();
 }
 
+String AirQuality::getName() {
+  return String("airquality");
+}
+
 String AirQuality::getReading() {
   this->setup();
   for (size_t i = 0; i < DEVICE_LENGTH; i++) {
